@@ -24,11 +24,12 @@ public class FineCalculatorTests
     [InlineData("2026-03-16T09:00:00Z", 5)]   // less than 24h after the due time, but a new calendar day
     [InlineData("2026-03-25T10:00:00Z", 50)]  // 10 days late
     [InlineData("2026-04-14T10:00:00Z", 150)] // 30 days late
-    public void Fine_is_5_rupees_per_calendar_day_after_due_date(string returnedAt, decimal expectedFine)
+    public void Fine_is_5_rupees_per_calendar_day_after_due_date(string returnedAt, int expectedFine)
     {
+        // expectedFine is an int because attribute arguments can't be decimal literals.
         var returned = DateTime.Parse(returnedAt, null, System.Globalization.DateTimeStyles.AdjustToUniversal);
 
-        Assert.Equal(expectedFine, _calculator.CalculateFine(Due, returned));
+        Assert.Equal((decimal)expectedFine, _calculator.CalculateFine(Due, returned));
     }
 
     [Fact]
