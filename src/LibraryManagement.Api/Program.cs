@@ -1,0 +1,132 @@
+using System.Reflection;
+using System.Text;
+using System.Text.Json.Serialization;
+using LibraryManagement.Api.Common;
+using LibraryManagement.Api.Data;
+using LibraryManagement.Api.Entities;
+using LibraryManagement.Api.Options;
+using LibraryManagement.Api.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// ---------- Configuration ----------
+builder.Services.AddOptions<JwtOptions>()
+    .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddOptions<LoanPolicyOptions>()
+    .Bind(builder.Configuration.GetSection(LoanPolicyOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+// ---------- Persistence ----------
+builder.Services.AddDbContext<LibraryDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("LibraryDb")));
+
+// ---------- Application services ----------
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IPasswordHasher<Member>, PasswordHasher<Member>>();
+builder.Services.AddSingleton<IFineCalculator, FineCalculator>();
+builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IBookService, BookService>();
+builder.Services.AddScoped<ILoanService, LoanService>();
+builder.Services.AddScoped<IReservationService, ReservationService>();
+builder.Services.AddScoped<IReservationQueue, ReservationQueue>();
+builder.Services.AddScoped<INotificationService, LoggingNotificationService>();
+builder.Services.AddScoped<IReportService, ReportService>();
+builder.Services.AddScoped<DbSeeder>();
+
+// ---------- Authentication / authorization ----------
+var jwt = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        // Keep claim names as issued ("sub", "role") instead of the legacy SOAP-style URIs.
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = jwt.Issuer,
+            ValidateAudience = true,
+            ValidAudience = jwt.Audience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key)),
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromMinutes(1),
+            NameClaimType = JwtRegisteredClaimNames.Name,
+            RoleClaimType = TokenService.RoleClaimType
+        };
+    });
+builder.Services.AddAuthorization();
+
+// ---------- Web ----------
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Library & Resource Management API",
+        Version = "v1",
+        Description = "Books, loans, reservations and reports. Log in via /api/auth/login, then click Authorize and paste the token."
+    });
+
+    var bearer = new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+    };
+    c.AddSecurityDefinition("Bearer", bearer);
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement { [bearer] = Array.Empty<string>() });
+
+    var xml = Path.Combine(AppContext.BaseDirectory, $"{Assembly.GetExecutingAssembly().GetName().Name}.xml");
+    if (File.Exists(xml)) c.IncludeXmlComments(xml);
+});
+
+var app = builder.Build();
+
+// ---------- Database bootstrap (opt-in via configuration) ----------
+using (var scope = app.Services.CreateScope())
+{
+    var config = app.Configuration;
+    if (config.GetValue<bool>("Database:ApplyMigrationsOnStartup"))
+        await scope.ServiceProvider.GetRequiredService<LibraryDbContext>().Database.MigrateAsync();
+    if (config.GetValue<bool>("Database:SeedSampleData"))
+        await scope.ServiceProvider.GetRequiredService<DbSeeder>().SeedAsync();
+}
+
+// ---------- Pipeline ----------
+app.UseExceptionHandler();
+app.UseStatusCodePages();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
+
+app.Run();
+
+// Exposed for WebApplicationFactory-based integration tests.
+public partial class Program;
