@@ -12,18 +12,14 @@ namespace LibraryManagement.Api.Controllers;
 [Produces("application/json")]
 public class LoansController(ILoanService loans) : ControllerBase
 {
-    /// <summary>
-    /// Borrow a book for 14 days. Fails with 409 if no copy is free; reserve the book instead.
-    /// Librarians may pass MemberId to lend on behalf of a member.
-    /// </summary>
+    /// <summary>Borrow a book for 14 days. Fails with 409 if no copy is free; reserve the book instead.</summary>
     [HttpPost]
     [ProducesResponseType<LoanDto>(StatusCodes.Status201Created)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<LoanDto>> Borrow(BorrowRequest request, CancellationToken ct)
     {
-        var memberId = User.ResolveTargetMemberId(request.MemberId);
-        var loan = await loans.BorrowAsync(request.BookId, memberId, ct);
+        var loan = await loans.BorrowAsync(request.BookId, User.GetMemberId(), ct);
         return StatusCode(StatusCodes.Status201Created, loan);
     }
 

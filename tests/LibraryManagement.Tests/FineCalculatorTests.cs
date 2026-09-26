@@ -1,12 +1,9 @@
-using LibraryManagement.Api.Options;
 using LibraryManagement.Api.Services;
-using Microsoft.Extensions.Options;
 
 namespace LibraryManagement.Tests;
 
 public class FineCalculatorTests
 {
-    private readonly FineCalculator _calculator = new(Options.Create(new LoanPolicyOptions()));
     private static readonly DateTime Due = new(2026, 3, 15, 10, 0, 0, DateTimeKind.Utc);
 
     [Fact]
@@ -14,7 +11,7 @@ public class FineCalculatorTests
     {
         var borrowed = new DateTime(2026, 3, 1, 10, 0, 0, DateTimeKind.Utc);
 
-        Assert.Equal(new DateTime(2026, 3, 15, 10, 0, 0, DateTimeKind.Utc), _calculator.CalculateDueDate(borrowed));
+        Assert.Equal(new DateTime(2026, 3, 15, 10, 0, 0, DateTimeKind.Utc), FineCalculator.CalculateDueDate(borrowed));
     }
 
     [Theory]
@@ -29,17 +26,15 @@ public class FineCalculatorTests
         // expectedFine is an int because attribute arguments can't be decimal literals.
         var returned = DateTime.Parse(returnedAt, null, System.Globalization.DateTimeStyles.AdjustToUniversal);
 
-        Assert.Equal((decimal)expectedFine, _calculator.CalculateFine(Due, returned));
+        Assert.Equal((decimal)expectedFine, FineCalculator.CalculateFine(Due, returned));
     }
 
     [Fact]
-    public void Fine_rate_and_period_come_from_configuration()
+    public void Days_overdue_counts_calendar_days_and_is_never_negative()
     {
-        var custom = new FineCalculator(Options.Create(new LoanPolicyOptions { LoanPeriodDays = 7, FinePerDay = 10m }));
-        var borrowed = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
-        var due = custom.CalculateDueDate(borrowed);
-
-        Assert.Equal(borrowed.AddDays(7), due);
-        Assert.Equal(30m, custom.CalculateFine(due, due.AddDays(3)));
+        Assert.Equal(0, FineCalculator.DaysOverdue(Due, Due.AddDays(-5)));
+        Assert.Equal(0, FineCalculator.DaysOverdue(Due, Due.AddHours(13))); // 23:00, still the due date
+        Assert.Equal(1, FineCalculator.DaysOverdue(Due, Due.AddHours(15))); // 01:00 the next day
+        Assert.Equal(16, FineCalculator.DaysOverdue(Due, Due.AddDays(16)));
     }
 }

@@ -12,7 +12,6 @@ namespace LibraryManagement.Api.Data;
 public class DbSeeder(
     LibraryDbContext db,
     IPasswordHasher<Member> hasher,
-    IFineCalculator fines,
     TimeProvider clock,
     ILogger<DbSeeder> logger)
 {
@@ -65,12 +64,12 @@ public class DbSeeder(
         void Returned(Book book, Member member, int borrowedDaysAgo, int daysLate = 0)
         {
             var borrowed = now.AddDays(-borrowedDaysAgo);
-            var due = fines.CalculateDueDate(borrowed);
+            var due = FineCalculator.CalculateDueDate(borrowed);
             var returned = daysLate > 0 ? due.AddDays(daysLate) : borrowed.AddDays(7);
             loans.Add(new Loan
             {
                 Book = book, Member = member, BorrowDate = borrowed, DueDate = due,
-                ReturnDate = returned, FineAmount = fines.CalculateFine(due, returned)
+                ReturnDate = returned, FineAmount = FineCalculator.CalculateFine(due, returned)
             });
         }
 
@@ -78,7 +77,7 @@ public class DbSeeder(
         void Active(Book book, Member member, int borrowedDaysAgo)
         {
             var borrowed = now.AddDays(-borrowedDaysAgo);
-            loans.Add(new Loan { Book = book, Member = member, BorrowDate = borrowed, DueDate = fines.CalculateDueDate(borrowed) });
+            loans.Add(new Loan { Book = book, Member = member, BorrowDate = borrowed, DueDate = FineCalculator.CalculateDueDate(borrowed) });
         }
 
         // History that gives the "most borrowed" report a clear ranking.

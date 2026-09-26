@@ -6,10 +6,6 @@ public class BorrowRequest
 {
     [Range(1, int.MaxValue)]
     public int BookId { get; init; }
-
-    /// <summary>Librarians only: borrow on behalf of this member. Members always borrow for themselves.</summary>
-    [Range(1, int.MaxValue)]
-    public int? MemberId { get; init; }
 }
 
 public record LoanDto(

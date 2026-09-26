@@ -10,7 +10,7 @@ public interface IReportService
     Task<OverdueReportDto> GetOverdueLoansAsync(CancellationToken ct = default);
 }
 
-public class ReportService(LibraryDbContext db, IFineCalculator fines, TimeProvider clock) : IReportService
+public class ReportService(LibraryDbContext db, TimeProvider clock) : IReportService
 {
     public async Task<IReadOnlyList<MostBorrowedBookDto>> GetMostBorrowedBooksAsync(int top = 5, CancellationToken ct = default)
     {
@@ -50,8 +50,8 @@ public class ReportService(LibraryDbContext db, IFineCalculator fines, TimeProvi
         var loans = rows.Select(r => new OverdueLoanDto(
                 r.Id, r.BookId, r.BookTitle, r.MemberId, r.MemberName, r.MemberEmail,
                 r.BorrowDate, r.DueDate,
-                DaysOverdue: fines.DaysOverdue(r.DueDate, now),
-                FineOwed: fines.CalculateFine(r.DueDate, now)))
+                DaysOverdue: FineCalculator.DaysOverdue(r.DueDate, now),
+                FineOwed: FineCalculator.CalculateFine(r.DueDate, now)))
             .ToList();
 
         return new OverdueReportDto(loans.Count, loans.Sum(l => l.FineOwed), loans);

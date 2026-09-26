@@ -20,10 +20,6 @@ builder.Services.AddOptions<JwtOptions>()
     .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
     .ValidateDataAnnotations()
     .ValidateOnStart();
-builder.Services.AddOptions<LoanPolicyOptions>()
-    .Bind(builder.Configuration.GetSection(LoanPolicyOptions.SectionName))
-    .ValidateDataAnnotations()
-    .ValidateOnStart();
 
 // ---------- Persistence ----------
 builder.Services.AddDbContext<LibraryDbContext>(options =>
@@ -32,14 +28,10 @@ builder.Services.AddDbContext<LibraryDbContext>(options =>
 // ---------- Application services ----------
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IPasswordHasher<Member>, PasswordHasher<Member>>();
-builder.Services.AddSingleton<IFineCalculator, FineCalculator>();
-builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IBookService, BookService>();
 builder.Services.AddScoped<ILoanService, LoanService>();
 builder.Services.AddScoped<IReservationService, ReservationService>();
-builder.Services.AddScoped<IReservationQueue, ReservationQueue>();
-builder.Services.AddScoped<INotificationService, LoggingNotificationService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<DbSeeder>();
 
@@ -62,7 +54,7 @@ builder.Services
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromMinutes(1),
             NameClaimType = JwtRegisteredClaimNames.Name,
-            RoleClaimType = TokenService.RoleClaimType
+            RoleClaimType = AuthService.RoleClaimType
         };
     });
 builder.Services.AddAuthorization();

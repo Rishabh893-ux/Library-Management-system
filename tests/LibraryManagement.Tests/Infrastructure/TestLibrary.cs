@@ -1,9 +1,9 @@
 using LibraryManagement.Api.Data;
 using LibraryManagement.Api.Entities;
-using LibraryManagement.Api.Options;
 using LibraryManagement.Api.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LibraryManagement.Tests.Infrastructure;
 
@@ -13,18 +13,6 @@ public sealed class FakeClock(DateTimeOffset start) : TimeProvider
     public DateTimeOffset Now { get; private set; } = start;
     public override DateTimeOffset GetUtcNow() => Now;
     public void Advance(TimeSpan by) => Now += by;
-}
-
-/// <summary>Records notifications instead of sending them.</summary>
-public sealed class RecordingNotificationService : INotificationService
-{
-    public List<int> NotifiedReservationIds { get; } = new();
-
-    public Task ReservationAvailableAsync(Reservation reservation, CancellationToken ct = default)
-    {
-        NotifiedReservationIds.Add(reservation.Id);
-        return Task.CompletedTask;
-    }
 }
 
 /// <summary>
@@ -39,8 +27,6 @@ public sealed class TestLibrary : IDisposable
     private readonly DbContextOptions<LibraryDbContext> _options;
 
     public FakeClock Clock { get; } = new(new DateTimeOffset(2026, 1, 1, 10, 0, 0, TimeSpan.Zero));
-    public RecordingNotificationService Notifications { get; } = new();
-    public FineCalculator Fines { get; } = new(Microsoft.Extensions.Options.Options.Create(new LoanPolicyOptions()));
 
     public TestLibrary()
     {
@@ -53,25 +39,25 @@ public sealed class TestLibrary : IDisposable
 
     public LibraryDbContext NewDb() => new(_options);
 
+    // Services that share work must share the DbContext, just as they do within one HTTP request.
     public LoanService Loans()
     {
         var db = NewDb();
-        return new LoanService(db, Fines, new ReservationQueue(db, Clock), Notifications, Clock);
+        return new LoanService(db, NewReservationService(db), Clock);
     }
 
-    public ReservationService Reservations()
-    {
-        var db = NewDb();
-        return new ReservationService(db, new ReservationQueue(db, Clock), Notifications, Clock);
-    }
+    public ReservationService Reservations() => NewReservationService(NewDb());
 
     public BookService Books()
     {
         var db = NewDb();
-        return new BookService(db, new ReservationQueue(db, Clock), Notifications);
+        return new BookService(db, NewReservationService(db));
     }
 
-    public ReportService Reports() => new(NewDb(), Fines, Clock);
+    public ReportService Reports() => new(NewDb(), Clock);
+
+    private ReservationService NewReservationService(LibraryDbContext db) =>
+        new(db, Clock, NullLogger<ReservationService>.Instance);
 
     public int AddBook(int copies, string title = "Test Book")
     {

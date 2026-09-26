@@ -19,9 +19,7 @@ public interface ILoanService
 
 public class LoanService(
     LibraryDbContext db,
-    IFineCalculator fines,
-    IReservationQueue queue,
-    INotificationService notifications,
+    IReservationService reservations,
     TimeProvider clock) : ILoanService
 {
     public async Task<LoanDto> BorrowAsync(int bookId, int memberId, CancellationToken ct = default)
@@ -43,7 +41,7 @@ public class LoanService(
         if (!hasHeldCopy)
         {
             // Copies held for other members' reservations can't be borrowed by anyone else.
-            var held = await queue.CountHeldCopiesAsync(bookId, ct);
+            var held = await reservations.CountHeldCopiesAsync(bookId, ct);
             if (book.AvailableCopies - held <= 0)
                 throw new BusinessRuleException(
                     $"No copies of '{book.Title}' are available. Reserve it instead (POST /api/reservations).");
@@ -55,7 +53,7 @@ public class LoanService(
             Book = book,
             Member = member,
             BorrowDate = now,
-            DueDate = fines.CalculateDueDate(now),
+            DueDate = FineCalculator.CalculateDueDate(now),
             FineAmount = 0m
         };
         db.Loans.Add(loan);
@@ -84,15 +82,13 @@ public class LoanService(
 
         var now = clock.GetUtcNow().UtcDateTime;
         loan.ReturnDate = now;
-        loan.FineAmount = fines.CalculateFine(loan.DueDate, now);
+        loan.FineAmount = FineCalculator.CalculateFine(loan.DueDate, now);
         loan.Book.AvailableCopies = Math.Min(loan.Book.AvailableCopies + 1, loan.Book.TotalCopies);
 
         // Hold the returned copy for the next member in the queue, if there is one.
-        var notified = await queue.ProcessAsync(loan.Book, ct);
+        await reservations.ProcessQueueAsync(loan.Book, ct);
 
         await db.SaveChangesAsync(ct);
-        await notifications.NotifyAllAsync(notified, ct);
-
         return loan.ToDto(now);
     }
 

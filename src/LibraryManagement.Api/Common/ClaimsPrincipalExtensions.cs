@@ -17,7 +17,7 @@ public static class ClaimsPrincipalExtensions
     public static bool IsLibrarian(this ClaimsPrincipal user) => user.IsInRole(nameof(MemberRole.Librarian));
 
     /// <summary>
-    /// Works out which member a request is about. Members can only act on themselves.
+    /// Works out whose data a read request is about. Members can only see their own.
     /// Librarians can pass another member's id.
     /// </summary>
     public static int ResolveTargetMemberId(this ClaimsPrincipal user, int? requestedMemberId)
