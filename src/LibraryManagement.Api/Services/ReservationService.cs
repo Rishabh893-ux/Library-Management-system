@@ -14,26 +14,13 @@ public interface IReservationService
 
     /// <summary>Open (Notified + Pending) reservations for a book in queue order.</summary>
     Task<IReadOnlyList<ReservationDto>> GetQueueForBookAsync(int bookId, CancellationToken ct = default);
-
-    /// <summary>
-    /// Gives any free copies of the book to the oldest Pending reservations (FIFO) by marking them Notified.
-    /// Changes tracked entities only. The caller saves. Used after a return, a cancellation or adding copies.
-    /// </summary>
-    Task ProcessQueueAsync(Book book, CancellationToken ct = default);
-
-    /// <summary>Number of available copies currently held for Notified reservations.</summary>
-    Task<int> CountHeldCopiesAsync(int bookId, CancellationToken ct = default);
 }
 
-/// <remarks>
-/// A Notified reservation holds one of the book's available copies for that member.
-/// The copy stays in <see cref="Book.AvailableCopies"/> but no one else can borrow it,
-/// so copies anyone can borrow = AvailableCopies − Notified reservations.
-/// </remarks>
 public class ReservationService(
     LibraryDbContext db,
-    TimeProvider clock,
-    ILogger<ReservationService> logger) : IReservationService
+    IReservationQueue queue,
+    INotificationService notifications,
+    TimeProvider clock) : IReservationService
 {
     // In-memory checks only. Queries spell out the comparison so it translates to plain SQL.
     private static readonly ReservationStatus[] OpenStatuses = [ReservationStatus.Pending, ReservationStatus.Notified];
@@ -53,7 +40,7 @@ public class ReservationService(
                 (r.Status == ReservationStatus.Pending || r.Status == ReservationStatus.Notified), ct))
             throw new BusinessRuleException($"Member already has an open reservation for '{book.Title}'.");
 
-        var held = await CountHeldCopiesAsync(bookId, ct);
+        var held = await queue.CountHeldCopiesAsync(bookId, ct);
         if (book.AvailableCopies - held > 0)
             throw new BusinessRuleException($"'{book.Title}' has copies available. Borrow it instead of reserving.");
 
@@ -92,39 +79,15 @@ public class ReservationService(
         reservation.Status = ReservationStatus.Cancelled;
 
         // A cancelled Notified reservation frees its held copy. Pass it to the next member in the queue.
-        if (releasedHeldCopy)
-            await ProcessQueueAsync(reservation.Book, ct);
+        IReadOnlyList<Reservation> notified = releasedHeldCopy
+            ? await queue.ProcessAsync(reservation.Book, ct)
+            : Array.Empty<Reservation>();
 
         await db.SaveChangesAsync(ct);
+        await notifications.NotifyAllAsync(notified, ct);
+
         return reservation.ToDto();
     }
-
-    public async Task ProcessQueueAsync(Book book, CancellationToken ct = default)
-    {
-        // Filter on the database status, then re-check statuses in memory. Tracked entities keep their
-        // in-memory values, so a reservation cancelled earlier in this request counts as cancelled.
-        var open = await db.Reservations
-            .Include(r => r.Member)
-            .Where(r => r.BookId == book.Id &&
-                        (r.Status == ReservationStatus.Pending || r.Status == ReservationStatus.Notified))
-            .OrderBy(r => r.ReservationDate).ThenBy(r => r.Id)
-            .ToListAsync(ct);
-
-        var free = book.AvailableCopies - open.Count(r => r.Status == ReservationStatus.Notified);
-        var now = clock.GetUtcNow().UtcDateTime;
-
-        foreach (var reservation in open.Where(r => r.Status == ReservationStatus.Pending).Take(Math.Max(free, 0)))
-        {
-            reservation.Status = ReservationStatus.Notified;
-            reservation.NotifiedDate = now;
-            // Stand-in for an email/SMS: the Notified status is what the member sees in the API.
-            logger.LogInformation("NOTIFY {Email}: a copy of '{Title}' is ready for pickup (reservation {ReservationId}).",
-                reservation.Member.Email, book.Title, reservation.Id);
-        }
-    }
-
-    public Task<int> CountHeldCopiesAsync(int bookId, CancellationToken ct = default) =>
-        db.Reservations.CountAsync(r => r.BookId == bookId && r.Status == ReservationStatus.Notified, ct);
 
     public async Task<IReadOnlyList<ReservationDto>> GetForMemberAsync(int memberId, CancellationToken ct = default)
     {

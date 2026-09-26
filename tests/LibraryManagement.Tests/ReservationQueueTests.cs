@@ -49,6 +49,7 @@ public class ReservationQueueTests : IDisposable
         Assert.Equal(ReservationStatus.Notified, aliceRes.Status);
         Assert.Equal(_lib.Clock.Now.UtcDateTime, aliceRes.NotifiedDate);
         Assert.Equal(ReservationStatus.Pending, _lib.GetReservation(bob.Id).Status);
+        Assert.Equal(new[] { alice.Id }, _lib.Notifications.NotifiedReservationIds);
         Assert.Equal(1, _lib.GetBook(book).AvailableCopies); // on the shelf, but held for Alice
     }
 
@@ -79,7 +80,7 @@ public class ReservationQueueTests : IDisposable
         await _lib.Loans().ReturnAsync(aliceLoan.Id, alice.MemberId, actingIsLibrarian: false);
 
         Assert.Equal(ReservationStatus.Notified, _lib.GetReservation(bob.Id).Status);
-        Assert.Equal(ReservationStatus.Fulfilled, _lib.GetReservation(alice.Id).Status);
+        Assert.Equal(new[] { alice.Id, bob.Id }, _lib.Notifications.NotifiedReservationIds);
     }
 
     [Fact]

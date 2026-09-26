@@ -17,7 +17,8 @@ public interface IBookService
 
 public class BookService(
     LibraryDbContext db,
-    IReservationService reservations) : IBookService
+    IReservationQueue queue,
+    INotificationService notifications) : IBookService
 {
     public async Task<PagedResult<BookDto>> SearchAsync(BookSearchQuery query, CancellationToken ct = default)
     {
@@ -83,8 +84,9 @@ public class BookService(
         book.AvailableCopies = request.TotalCopies - onLoan;
 
         // New copies may be able to serve people already waiting in the queue.
-        await reservations.ProcessQueueAsync(book, ct);
+        var notified = await queue.ProcessAsync(book, ct);
         await db.SaveChangesAsync(ct);
+        await notifications.NotifyAllAsync(notified, ct);
 
         return book.ToDto();
     }

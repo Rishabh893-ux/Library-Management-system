@@ -185,7 +185,7 @@ All routes are under `/api`. Every route except register and login needs an `Aut
 
 | Method | Route | Access | Description |
 |---|---|---|---|
-| `POST` | `/loans` | Any user | Borrow `{ "bookId": 1 }` for yourself |
+| `POST` | `/loans` | Any user | Borrow `{ "bookId": 1 }`. Librarians can add `"memberId"` to lend for someone else |
 | `POST` | `/loans/{id}/return` | Borrower or Librarian | Return a book. Calculates any fine and hands the copy to the reservation queue |
 | `GET` | `/loans/active?memberId=` | Self or Librarian | A member's unreturned loans, with an `isOverdue` flag |
 
@@ -333,9 +333,10 @@ curl -sk -H "Authorization: Bearer $CAROL" -H 'Content-Type: application/json' -
 | A book with no free copies can't be borrowed; the API answers `409` and suggests reserving | `LoanService.BorrowAsync` |
 | The loan period is **14 days**. The fine is **₹5 per calendar day** after the due date, and returning on the due date is free | `FineCalculator` |
 | Returning records `ReturnDate` and `FineAmount`, and puts the copy back (`AvailableCopies + 1`) | `LoanService.ReturnAsync` |
-| Returning processes the book's reservation queue, **FIFO** by reservation time | `ReservationService.ProcessQueueAsync` |
+| Returning processes the book's reservation queue, **FIFO** by reservation time | `ReservationQueue.ProcessAsync` |
 | A book can only be reserved when every copy is taken. A member gets one open reservation per book, and can't reserve a book they already have | `ReservationService.ReserveAsync` |
 | A member can't borrow two copies of the same book at once | `LoanService.BorrowAsync` |
+| Loan period and fine rate are configurable (`LoanPolicy` settings) | `LoanPolicyOptions` |
 
 ### Reservation lifecycle
 
@@ -364,8 +365,9 @@ sequenceDiagram
     participant C as LoansController
     participant L as LoanService
     participant F as FineCalculator
-    participant R as ReservationService
+    participant Q as ReservationQueue
     participant DB as SQL Server
+    participant N as NotificationService
 
     M->>C: POST /api/loans/{id}/return
     C->>L: ReturnAsync(loanId, caller)
@@ -374,10 +376,11 @@ sequenceDiagram
     L->>F: CalculateFine(dueDate, now)
     F-->>L: ₹5 × days late
     L->>L: ReturnDate = now, AvailableCopies + 1
-    L->>R: ProcessQueueAsync(book)
-    R->>DB: open reservations (FIFO)
-    R-->>L: oldest Pending → Notified (logged)
+    L->>Q: ProcessAsync(book)
+    Q->>DB: open reservations (FIFO)
+    Q-->>L: oldest Pending → Notified
     L->>DB: SaveChanges (single transaction)
+    L->>N: notify after commit
     L-->>C: LoanDto (with fine)
     C-->>M: 200 OK
 ```
@@ -392,6 +395,7 @@ flowchart LR
     subgraph API [LibraryManagement.Api]
         Controllers -->|DTOs| Services
         Services --> DbContext[LibraryDbContext]
+        Services -.-> Notify[INotificationService]
     end
     DbContext --> SQL[(SQL Server)]
 ```
@@ -401,12 +405,12 @@ LibraryManagement/
 ├── src/LibraryManagement.Api/
 │   ├── Controllers/   Thin HTTP layer: routing, [Authorize], resolving "who is acting"
 │   ├── DTOs/          Request models (validated) and response records, the API's public contract
-│   ├── Services/      All business logic: Auth (incl. JWT), Book, Loan, Reservation (incl. the queue),
-│   │                  Report, FineCalculator, plus entity → DTO Mapping
+│   ├── Services/      All business logic: Auth, Token, Book, Loan, Reservation,
+│   │                  ReservationQueue, FineCalculator, Report, Notification, Mapping
 │   ├── Entities/      EF Core entities: Book, Member, Loan, Reservation (+ enums)
 │   ├── Data/          LibraryDbContext (Fluent API), DbSeeder, Migrations/
 │   ├── Common/        Typed exceptions → ProblemDetails handler, roles, claims helpers
-│   ├── Options/       JWT settings, validated at startup
+│   ├── Options/       Strongly typed, startup-validated settings
 │   └── Program.cs     Composition root: DI, JWT, Swagger, pipeline, migrate + seed
 └── tests/LibraryManagement.Tests/     xUnit tests on in-memory SQLite
 ```
@@ -417,10 +421,9 @@ LibraryManagement/
 - **No generic repository layer.** EF Core's `DbContext` already is a unit of work and `DbSet<T>` a repository, so another layer would add indirection without value. Services sit behind interfaces, so they stay swappable and testable.
 - **Errors are exceptions, not status-code plumbing.** Services throw `NotFoundException`, `BusinessRuleException` or `ForbiddenException`. A single `GlobalExceptionHandler` maps them to ProblemDetails, so controllers have no `try/catch`.
 - **Time is injected** (`TimeProvider`), so tests control the clock exactly for due dates and fines.
-- **One place for the queue.** Returns, cancellations and copy-count increases all call `ReservationService.ProcessQueueAsync`, so the FIFO and hold rules can't drift apart.
-- **Notification is a status change plus a log line.** The brief allows "notify (or just update status)": a reservation becomes `Notified`, and the app logs who to contact. Real email or SMS would be added at that one spot.
-- **Fixed rules are constants.** The 14-day loan and ₹5/day fine live in `FineCalculator`, a small static class that is easy to test.
-- **Configuration fails fast.** JWT settings are validated at startup; the app refuses to start with a key shorter than 32 characters.
+- **One place for the queue.** Returns, cancellations and copy-count increases all go through `ReservationQueue`, so the FIFO and hold rules can't drift apart.
+- **Notifications happen after commit.** `INotificationService` currently writes to the log. It's the seam for real email or SMS, and a failed send can never roll back a return.
+- **Configuration fails fast.** Settings are validated at startup; for example, the app refuses to start with a JWT key shorter than 32 characters.
 
 ---
 
@@ -489,6 +492,8 @@ Settings live in `src/LibraryManagement.Api/appsettings.json`. `appsettings.Deve
 | `Jwt:Key` | HMAC signing key. **Must be at least 32 characters** | empty; a dev key in Development |
 | `Jwt:Issuer` / `Jwt:Audience` | Token issuer and audience | `LibraryManagement.Api` / `LibraryManagement.Clients` |
 | `Jwt:ExpiryMinutes` | Token lifetime | `60` |
+| `LoanPolicy:LoanPeriodDays` | Loan length in days | `14` |
+| `LoanPolicy:FinePerDay` | Late fine in ₹ per day | `5` |
 | `Database:ApplyMigrationsOnStartup` | Run migrations when the app starts | `false` (`true` in Development) |
 | `Database:SeedSampleData` | Seed demo data into an empty database | `false` (`true` in Development) |
 
@@ -531,7 +536,7 @@ The tests focus on the trickiest logic: fines and the reservation queue. They ru
 
 | Test class | Covers |
 |---|---|
-| `FineCalculatorTests` (8) | 14-day due date; fines on the due date, just after midnight, less than 24h late but on a new day, 10 and 30 days late; days-overdue counting |
+| `FineCalculatorTests` (8) | 14-day due date; fines on the due date, just after midnight, less than 24h late but on a new day, 10 and 30 days late; configurable rates |
 | `LoanServiceTests` (8) | Borrowing decrements copies and is refused at 0; late and on-time returns; double-return rejected; members can only return their own loans; active-loans list; overdue report |
 | `ReservationQueueTests` (8) | FIFO positions; a return notifies only the head of the queue; a held copy can't be taken by others; the notified member's borrow fulfils the reservation; the queue advances; a cancelled hold passes on; added copies serve the queue; guard rules |
 
@@ -560,7 +565,7 @@ The most-borrowed report uses SQL Server syntax (`TOP`), so it's covered by the 
 - [ ] Integration tests for HTTP and auth with `WebApplicationFactory`
 - [ ] GitHub Actions CI running `dotnet test` on every push
 - [ ] Docker Compose (API + SQL Server) for one-command setup
-- [ ] Real email notifications when a reservation becomes `Notified`
+- [ ] Real email notifications behind `INotificationService`
 - [ ] Refresh tokens and a librarian-only endpoint to promote members
 
 ---

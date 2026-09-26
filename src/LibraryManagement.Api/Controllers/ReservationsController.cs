@@ -22,7 +22,8 @@ public class ReservationsController(IReservationService reservations) : Controll
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ReservationDto>> Reserve(CreateReservationRequest request, CancellationToken ct)
     {
-        var reservation = await reservations.ReserveAsync(request.BookId, User.GetMemberId(), ct);
+        var memberId = User.ResolveTargetMemberId(request.MemberId);
+        var reservation = await reservations.ReserveAsync(request.BookId, memberId, ct);
         return StatusCode(StatusCodes.Status201Created, reservation);
     }
 
