@@ -4,7 +4,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LibraryManagement.Api.Common;
 
-/// <summary>Turns exceptions into RFC 7807 ProblemDetails responses.</summary>
+/// <summary>
+/// Turns exceptions into RFC 7807 ProblemDetails responses. This is the only place that logs errors:
+/// the built-in ExceptionHandlerMiddleware logs every exception at Error level, including expected 4xx
+/// business errors, so its log category is set to Critical in appsettings.
+/// </summary>
 public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger, IProblemDetailsService problemDetails)
     : IExceptionHandler
 {
