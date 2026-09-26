@@ -60,7 +60,7 @@ It is built with **ASP.NET Core Web API (.NET 8)**, **Entity Framework Core** on
 | Database | SQL Server (LocalDB, Express, Developer or Docker) |
 | Auth | JWT bearer tokens (HMAC-SHA256), ASP.NET Core Identity password hasher (PBKDF2) |
 | Validation | DataAnnotations on request DTOs |
-| Docs | OpenAPI (Swashbuckle), viewable in **Scalar** or **Swagger UI**, plus a runnable `.http` demo file |
+| Docs | Swagger / OpenAPI (Swashbuckle) with a built-in *Authorize* button, plus a runnable `.http` demo file |
 | Testing | xUnit + in-memory SQLite |
 
 ---
@@ -83,15 +83,12 @@ cd Library-Management-system
 dotnet run --project src/LibraryManagement.Api --launch-profile https
 ```
 
-Then open one of the three ways to explore the API:
+Then open **https://localhost:7180/swagger**, or use the ready-made requests in `LibraryManagement.http`:
 
 | Tool | Where | Best for |
 |---|---|---|
-| **Scalar** | https://localhost:7180/scalar | A modern, searchable API reference, with ready-made code snippets (curl, C#, JS…) and a built-in request runner |
-| **Swagger UI** | https://localhost:7180/swagger | The classic OpenAPI explorer |
+| **Swagger UI** | https://localhost:7180/swagger (served in `Development` only) | Browsing every endpoint and trying it from the browser |
 | **`LibraryManagement.http`** | Repo root. Open it in VS Code (with the [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) extension) or in Visual Studio | The whole demo as one-click requests. Logins are chained, so you never copy and paste a token |
-
-Scalar and Swagger UI both read the same OpenAPI document, so they always match. Both are served only in the `Development` environment.
 
 On first start in the `Development` environment, the app:
 
