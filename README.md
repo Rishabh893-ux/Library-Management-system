@@ -12,6 +12,7 @@ An ASP.NET Core Web API (.NET 8) for managing a library: the book catalogue, loa
 - [Architecture](#architecture)
 - [Business rules](#business-rules)
 - [Tests](#tests)
+- [License](#license)
 
 ---
 
@@ -238,3 +239,7 @@ The tests (xUnit) cover the logic most likely to go wrong. They run against **in
   - Reservation guard rules.
 
 The most-borrowed report uses SQL Server syntax (`TOP`), so it isn't covered by the SQLite tests. Check it against a real SQL Server, e.g. with Swagger and the seeded data.
+
+## License
+
+[MIT](LICENSE) © 2026 Rishabh Kasaudhan
