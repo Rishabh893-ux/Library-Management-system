@@ -1,0 +1,182 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Library & Resource Management API: a runnable demo
+#
+# How to use:
+#   • VS Code: install the "REST Client" extension (humao.rest-client),
+#     then click "Send Request" above any request.
+#   • Visual Studio 2022 (17.12+): open this file and click the green ▶ next to a request.
+#   • Start the API first:  dotnet run --project src/LibraryManagement.Api --launch-profile http
+#
+# Send the four LOGIN requests (section 1) first. Every other request reads the
+# token straight from those responses, so you never copy and paste a JWT.
+#
+# Section 4 changes the sample data. To reset it:
+#   dotnet ef database drop -f --project src/LibraryManagement.Api   (then restart the app)
+# Fines grow daily: the ₹ amounts below are true on the day the database was seeded.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@api = http://localhost:5180/api
+
+
+###
+# ═══ 1. LOGIN ═══════════════════════════════════════════════════════════════
+# @name admin
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "admin@library.local", "password": "Admin@123" }
+
+###
+# @name alice
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "alice@example.com", "password": "Member@123" }
+
+###
+# @name bob
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "bob@example.com", "password": "Member@123" }
+
+###
+# @name carol
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "carol@example.com", "password": "Member@123" }
+
+
+###
+# ═══ 2. CATALOGUE ═══════════════════════════════════════════════════════════
+# Search by category (partial, case-insensitive)  → 3 fiction books
+GET {{api}}/books?category=fiction
+Authorization: Bearer {{alice.response.body.$.token}}
+
+###
+# Search by author  → Wings of Fire
+GET {{api}}/books?author=kalam
+Authorization: Bearer {{alice.response.body.$.token}}
+
+###
+# Librarian adds a book (hyphens in the ISBN are stripped)  → 201
+# @name newBook
+POST {{api}}/books
+Authorization: Bearer {{admin.response.body.$.token}}
+Content-Type: application/json
+
+{ "title": "Refactoring", "author": "Martin Fowler", "isbn": "978-0-13-475759-9", "category": "Software", "totalCopies": 2 }
+
+###
+# Librarian deletes it again  → 204
+DELETE {{api}}/books/{{newBook.response.body.$.id}}
+Authorization: Bearer {{admin.response.body.$.token}}
+
+###
+# A member can't add books  → 403
+POST {{api}}/books
+Authorization: Bearer {{alice.response.body.$.token}}
+Content-Type: application/json
+
+{ "title": "Nope", "author": "Nobody", "isbn": "9780000000002", "category": "X", "totalCopies": 1 }
+
+
+###
+# ═══ 3. REPORTS (librarian only) ════════════════════════════════════════════
+# Top 5 most borrowed  → Clean Code (6), Atomic Habits (4), ...
+GET {{api}}/reports/most-borrowed
+Authorization: Bearer {{admin.response.body.$.token}}
+
+###
+# Overdue loans with fines owed  → 2 loans, ₹110 total (on the day of seeding)
+GET {{api}}/reports/overdue-loans
+Authorization: Bearer {{admin.response.body.$.token}}
+
+
+###
+# ═══ 4. THE RESERVATION QUEUE (send in order) ═══════════════════════════════
+# "The God of Small Things" (book 5) has 1 copy. Bob has it, 16 days overdue.
+# Carol reserved it first, Alice second.
+#
+# 4a. The queue  → Carol #1, Alice #2 (both Pending)
+GET {{api}}/reservations/book/5
+Authorization: Bearer {{admin.response.body.$.token}}
+
+###
+# 4b. Carol tries to borrow  → 409 "No copies available. Reserve it instead"
+POST {{api}}/loans
+Authorization: Bearer {{carol.response.body.$.token}}
+Content-Type: application/json
+
+{ "bookId": 5 }
+
+###
+# 4c. Bob's active loans (his only loan is book 5)
+# @name bobLoans
+GET {{api}}/loans/active
+Authorization: Bearer {{bob.response.body.$.token}}
+
+###
+# 4d. Bob returns it  → fineAmount ₹80 (16 days × ₹5). Carol is notified (see the app log).
+POST {{api}}/loans/{{bobLoans.response.body.$[0].id}}/return
+Authorization: Bearer {{bob.response.body.$.token}}
+
+###
+# 4e. The queue again  → Carol is Notified (the copy is held for her), Alice still Pending
+GET {{api}}/reservations/book/5
+Authorization: Bearer {{admin.response.body.$.token}}
+
+###
+# 4f. Alice tries to take the held copy  → 409
+POST {{api}}/loans
+Authorization: Bearer {{alice.response.body.$.token}}
+Content-Type: application/json
+
+{ "bookId": 5 }
+
+###
+# 4g. Carol borrows her held copy  → 201, due in 14 days
+POST {{api}}/loans
+Authorization: Bearer {{carol.response.body.$.token}}
+Content-Type: application/json
+
+{ "bookId": 5 }
+
+###
+# 4h. Alice's reservations  → she is now Pending, queuePosition 1
+GET {{api}}/reservations
+Authorization: Bearer {{alice.response.body.$.token}}
+
+
+###
+# ═══ 5. ERROR HANDLING (all return RFC 7807 ProblemDetails) ═════════════════
+# Validation errors, field by field  → 400
+POST {{api}}/auth/register
+Content-Type: application/json
+
+{ "name": "A", "email": "not-an-email", "password": "short" }
+
+###
+# Wrong password  → 401
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "alice@example.com", "password": "Wrong123" }
+
+###
+# No token  → 401
+GET {{api}}/books
+
+###
+# A member looking at another member's loans  → 403
+GET {{api}}/loans/active?memberId=1
+Authorization: Bearer {{alice.response.body.$.token}}
+
+###
+# Reserving a book that has free copies  → 409 "Borrow it instead"
+POST {{api}}/reservations
+Authorization: Bearer {{alice.response.body.$.token}}
+Content-Type: application/json
+
+{ "bookId": 7 }
