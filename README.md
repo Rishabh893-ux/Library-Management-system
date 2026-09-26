@@ -2,10 +2,6 @@
 
 An ASP.NET Core Web API (.NET 8) for managing a library: the book catalogue, loans with late fines, a FIFO reservation queue, and librarian reports. It uses SQL Server via Entity Framework Core (code-first migrations) and JWT authentication with two roles.
 
-> **Status:** all code is written, but it has **not yet been compiled or tested**. The machine it was written on had no .NET SDK. Remaining steps:
-> 1. `dotnet build`
-> 2. Generate the initial migration: `dotnet ef migrations add InitialCreate --project src/LibraryManagement.Api --output-dir Data/Migrations`
-> 3. `dotnet test`
 
 ## Contents
 
@@ -27,9 +23,6 @@ An ASP.NET Core Web API (.NET 8) for managing a library: the book catalogue, loa
 - SQL Server. LocalDB (installed with Visual Studio) works as-is. SQL Server Express, Developer or a Docker container also work.
 
 ```bash
-dotnet tool restore                    # installs the pinned dotnet-ef tool
-# first time only: create the initial migration (see "Database" below)
-dotnet ef migrations add InitialCreate --project src/LibraryManagement.Api --output-dir Data/Migrations
 dotnet run --project src/LibraryManagement.Api --launch-profile https
 ```
 
@@ -82,14 +75,11 @@ Jwt__Key=...  ConnectionStrings__LibraryDb=...
 
 ## Database: migrations and seed data
 
-Migrations go in `src/LibraryManagement.Api/Data/Migrations`. The `InitialCreate` migration hasn't been generated yet (see Status above). Create it once with the first command below, then commit it.
+The `InitialCreate` migration is in `src/LibraryManagement.Api/Data/Migrations`.
 
 ```bash
 # from the repository root
-dotnet tool restore
-
-# one-time: generate the initial migration from the entity model
-dotnet ef migrations add InitialCreate --project src/LibraryManagement.Api --output-dir Data/Migrations
+dotnet tool restore                    # installs the pinned dotnet-ef tool
 
 # create or upgrade the database
 dotnet ef database update --project src/LibraryManagement.Api

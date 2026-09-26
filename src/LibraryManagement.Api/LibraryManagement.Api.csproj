@@ -6,8 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>LibraryManagement.Api</RootNamespace>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <!-- Don't warn about missing XML comments on every public member; we only use them for Swagger. -->
-    <NoWarn>$(NoWarn);1591</NoWarn>
+    <!-- XML comments are only used for Swagger, so don't require them on every member or parameter. -->
+    <NoWarn>$(NoWarn);1591;1573</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
